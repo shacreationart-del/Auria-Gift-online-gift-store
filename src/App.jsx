@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import "./App.css";
 
-const WHATSAPP_NUMBER = "94782676693";
+const WHATSAPP_NUMBER = "94702676693";
 
 const defaultProducts = [
   {
