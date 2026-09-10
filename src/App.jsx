@@ -479,7 +479,6 @@ function AdminPanel({
   const [offerActive, setOfferActive] = useState(true);
 
   const [message, setMessage] = useState("");
-  const [productSearch, setProductSearch] = useState("");
 
   const handleImageChange = (event) => {
     const file = event.target.files[0];
@@ -700,7 +699,20 @@ function AdminPanel({
         </div>
 
         <div className="admin-content">
+        <div
+          className="admin-status-bar"
+          aria-label="Admin section navigation"
+          style={{ gridColumn: "1 / -1", width: "100%", minWidth: 0 }}
+        >
+          <a href="#admin-add-product">Add Product</a>
+          <a href="#admin-current-products">Products</a>
+          <a href="#admin-add-offer">Add Offer</a>
+          <a href="#admin-current-offers">Offers</a>
+          <a href="#admin-customer-orders">Orders</a>
+        </div>
+
           <form
+            id="admin-add-product"
             className="product-form"
             onSubmit={handleAddProduct}
           >
@@ -787,29 +799,14 @@ function AdminPanel({
             </button>
           </form>
 
-          <div className="admin-products">
+          <div id="admin-current-products" className="admin-products">
             <div className="admin-products-heading">
               <h3>Current Products</h3>
               <span>{products.length} products</span>
             </div>
 
-            <div className="admin-product-search">
-              <input
-                type="search"
-                placeholder="Search product by name or category..."
-                value={productSearch}
-                onChange={(event) => setProductSearch(event.target.value)}
-              />
-            </div>
-
             <div className="admin-product-list">
-              {products
-                .filter((product) => {
-                  const query = productSearch.trim().toLowerCase();
-                  if (!query) return true;
-                  return `${product.name} ${product.category}`.toLowerCase().includes(query);
-                })
-                .map((product) => {
+              {products.map((product) => {
                 const productStock = Number(
                   product.stock || 0
                 );
@@ -876,11 +873,12 @@ function AdminPanel({
                     </div>
                   </div>
                 );
-                })}
+              })}
             </div>
           </div>
 
           <form
+            id="admin-add-offer"
             className="product-form offer-form"
             onSubmit={handleAddOffer}
           >
@@ -972,7 +970,7 @@ function AdminPanel({
             </button>
           </form>
 
-          <div className="admin-products">
+          <div id="admin-current-offers" className="admin-products">
             <div className="admin-products-heading">
               <h3>Current Offers</h3>
               <span>{offers.length} offers</span>
@@ -1039,7 +1037,7 @@ function AdminPanel({
             </div>
           </div>
 
-          <div className="admin-products admin-orders-section">
+          <div id="admin-customer-orders" className="admin-products admin-orders-section">
             <div className="admin-products-heading">
               <h3>Customer Orders</h3>
               <span>{orders.length} orders</span>
