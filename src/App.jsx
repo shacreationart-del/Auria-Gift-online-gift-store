@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import "./App.css";
 
-const WHATSAPP_NUMBER = "94702676693";
+const WHATSAPP_NUMBER = "94782676693";
 
 const defaultProducts = [
   {
@@ -479,6 +479,7 @@ function AdminPanel({
   const [offerActive, setOfferActive] = useState(true);
 
   const [message, setMessage] = useState("");
+  const [productSearch, setProductSearch] = useState("");
 
   const handleImageChange = (event) => {
     const file = event.target.files[0];
@@ -679,53 +680,6 @@ function AdminPanel({
     setMessage("Order එක delete කළා.");
   };
 
-  const sendWhatsAppUpdate = (order) => {
-    const rawPhone = String(order.customerPhone || "").replace(/\\D/g, "");
-
-    if (!rawPhone) {
-      setMessage("Customer phone number එක නැහැ.");
-      return;
-    }
-
-    let phone = rawPhone;
-
-    if (phone.startsWith("0")) {
-      phone = `94${phone.slice(1)}`;
-    } else if (phone.startsWith("+")) {
-      phone = phone.slice(1);
-    }
-
-    const orderItems = (order.items || [])
-      .map(
-        (item) =>
-          `• ${item.name} x ${item.quantity} = LKR ${Number(
-            item.subtotal
-          ).toLocaleString("en-LK")}`
-      )
-      .join("\\n");
-
-    const message = `AURIA GIFT - ORDER UPDATE
-
-Order ID: #${String(order.id).slice(-6)}
-Customer: ${order.customerName}
-Order Status: ${order.status}
-
-Order Items:
-${orderItems}
-
-Order Total: LKR ${Number(order.total).toLocaleString("en-LK")}
-
-Thank you.
-Auria Gift`;
-
-    const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(
-      message
-    )}`;
-
-    window.open(whatsappUrl, "_blank");
-    setMessage("WhatsApp message එක open කළා. Send button එක ඔබන්න.");
-  };
-
   return (
     <div className="admin-overlay">
       <div className="admin-panel">
@@ -839,8 +793,23 @@ Auria Gift`;
               <span>{products.length} products</span>
             </div>
 
+            <div className="admin-product-search">
+              <input
+                type="search"
+                placeholder="Search product by name or category..."
+                value={productSearch}
+                onChange={(event) => setProductSearch(event.target.value)}
+              />
+            </div>
+
             <div className="admin-product-list">
-              {products.map((product) => {
+              {products
+                .filter((product) => {
+                  const query = productSearch.trim().toLowerCase();
+                  if (!query) return true;
+                  return `${product.name} ${product.category}`.toLowerCase().includes(query);
+                })
+                .map((product) => {
                 const productStock = Number(
                   product.stock || 0
                 );
@@ -907,7 +876,7 @@ Auria Gift`;
                     </div>
                   </div>
                 );
-              })}
+                })}
             </div>
           </div>
 
@@ -1119,27 +1088,17 @@ Auria Gift`;
                         Total: LKR {Number(order.total).toLocaleString("en-LK")}
                       </strong>
 
-                      <div className="admin-order-status-actions">
-                        <select
-                          value={order.status}
-                          onChange={(event) =>
-                            handleUpdateOrderStatus(order.id, event.target.value)
-                          }
-                        >
-                          <option value="Pending">Pending</option>
-                          <option value="Processing">Processing</option>
-                          <option value="Completed">Completed</option>
-                          <option value="Cancelled">Cancelled</option>
-                        </select>
-
-                        <button
-                          type="button"
-                          className="whatsapp-update-button"
-                          onClick={() => sendWhatsAppUpdate(order)}
-                        >
-                          💬 Send WhatsApp Update
-                        </button>
-                      </div>
+                      <select
+                        value={order.status}
+                        onChange={(event) =>
+                          handleUpdateOrderStatus(order.id, event.target.value)
+                        }
+                      >
+                        <option value="Pending">Pending</option>
+                        <option value="Processing">Processing</option>
+                        <option value="Completed">Completed</option>
+                        <option value="Cancelled">Cancelled</option>
+                      </select>
                     </div>
                   </div>
                 ))

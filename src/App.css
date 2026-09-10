@@ -3076,4 +3076,52 @@ footer {
   .cart-item-details strong {
     font-size: 21px !important;
   }
+}.admin-order-status-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-order-status-actions select {
+  min-width: 125px;
+}
+
+.whatsapp-update-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 15px;
+  border: none;
+  border-radius: 10px;
+  background: #25d366;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.whatsapp-update-button:hover {
+  background: #1ebe5d;
+  transform: translateY(-1px);
+}
+
+.whatsapp-update-button:active {
+  transform: translateY(0);
+}
+
+@media (max-width: 600px) {
+  .admin-order-status-actions {
+    align-items: stretch;
+    justify-content: stretch;
+    flex-direction: column;
+  }
+
+  .admin-order-status-actions select,
+  .whatsapp-update-button {
+    width: 100%;
+  }
 }
