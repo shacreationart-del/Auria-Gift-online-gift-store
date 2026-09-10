@@ -1,7 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./App.css";
 
 const WHATSAPP_NUMBER = "94782676693";
+
+const couponCodes = {
+  AURIA10: { type: "percent", value: 10, label: "10% OFF" },
+  GIFT500: { type: "fixed", value: 500, label: "LKR 500 OFF" },
+};
 
 const defaultProducts = [
   {
@@ -189,14 +194,18 @@ function CartDrawer({
   onDecrease,
   onRemove,
   onOrderComplete,
+  coupons,
 }) {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerAddress, setCustomerAddress] = useState("");
   const [checkoutMessage, setCheckoutMessage] = useState("");
-
-  if (!isOpen) return null;
+  const [couponCode, setCouponCode] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState(null);
+  const [surpriseCoupon, setSurpriseCoupon] = useState(null);
+  const previousSubtotalRef = useRef(0);
+  const unlockedCouponIdsRef = useRef(new Set());
 
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -214,7 +223,124 @@ function CartDrawer({
     })
     .filter(Boolean);
 
-  const total = cartItems.reduce((sum, item) => sum + item.subtotal, 0);
+  const subtotal = cartItems.reduce((sum, item) => sum + item.subtotal, 0);
+
+  const discountAmount = appliedCoupon
+    ? appliedCoupon.type === "percent"
+      ? Math.round((subtotal * appliedCoupon.value) / 100)
+      : Math.min(appliedCoupon.value, subtotal)
+    : 0;
+
+  const total = Math.max(0, subtotal - discountAmount);
+
+  const handleApplyCoupon = () => {
+    const code = couponCode.trim().toUpperCase();
+
+    if (!code) {
+      setCheckoutMessage("Coupon code එක ඇතුළත් කරන්න.");
+      return;
+    }
+
+    const coupon = coupons.find(
+      (item) => item.code.toUpperCase() === code && item.active
+    );
+
+    if (!coupon) {
+      setAppliedCoupon(null);
+      setCheckoutMessage("Invalid or inactive coupon code එකක්. නැවත check කරන්න.");
+      return;
+    }
+
+    if (coupon.expiry && new Date(`${coupon.expiry}T23:59:59`) < new Date()) {
+      setAppliedCoupon(null);
+      setCheckoutMessage("මේ coupon එකේ validity period එක ඉවරයි.");
+      return;
+    }
+
+    if (subtotal < Number(coupon.minOrder || 0)) {
+      setAppliedCoupon(null);
+      setCheckoutMessage(
+        `මේ coupon එක භාවිතා කරන්න minimum order එක LKR ${Number(coupon.minOrder || 0).toLocaleString("en-LK")} ක් විය යුතුයි.`
+      );
+      return;
+    }
+
+    setCouponCode(code);
+    setAppliedCoupon({ ...coupon, code });
+    setCheckoutMessage(`${code} coupon එක apply කළා — ${coupon.label}.`);
+  };
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponCode("");
+    setCheckoutMessage("");
+  };
+
+  useEffect(() => {
+    const previousSubtotal = previousSubtotalRef.current;
+
+    // Reset the unlock session when the cart becomes empty.
+    if (subtotal <= 0) {
+      previousSubtotalRef.current = 0;
+      unlockedCouponIdsRef.current.clear();
+      setSurpriseCoupon(null);
+      return;
+    }
+
+    // Trigger when the cart crosses a coupon minimum OR when the cart
+    // is already above the minimum (for example after a page refresh).
+    const unlockedCoupon = coupons.find((coupon) => {
+      const minimum = Number(coupon.minOrder || 0);
+
+      if (!coupon.active || minimum <= 0) return false;
+      if (unlockedCouponIdsRef.current.has(coupon.id)) return false;
+
+      const notExpired =
+        !coupon.expiry ||
+        new Date(`${coupon.expiry}T23:59:59`) >= new Date();
+
+      return (
+        notExpired &&
+        subtotal >= minimum &&
+        (previousSubtotal < minimum || previousSubtotal === 0)
+      );
+    });
+
+    if (unlockedCoupon && !appliedCoupon && !surpriseCoupon) {
+      unlockedCouponIdsRef.current.add(unlockedCoupon.id);
+      setSurpriseCoupon(unlockedCoupon);
+    }
+
+    previousSubtotalRef.current = subtotal;
+  }, [subtotal, coupons]);
+
+  useEffect(() => {
+    // If the cart total changes, only keep an applied coupon while it remains valid.
+    if (appliedCoupon) {
+      const stillValid =
+        appliedCoupon.active &&
+        (!appliedCoupon.expiry ||
+          new Date(`${appliedCoupon.expiry}T23:59:59`) >= new Date()) &&
+        subtotal >= Number(appliedCoupon.minOrder || 0);
+
+      if (!stillValid) {
+        setAppliedCoupon(null);
+        setCouponCode("");
+      }
+    }
+  }, [subtotal, appliedCoupon]);
+
+  if (!isOpen) return null;
+
+  const unlockedCoupons = coupons.filter((coupon) => {
+    const isActive = coupon.active;
+    const notExpired =
+      !coupon.expiry ||
+      new Date(`${coupon.expiry}T23:59:59`) >= new Date();
+    const minimumReached = subtotal >= Number(coupon.minOrder || 0);
+
+    return isActive && notExpired && minimumReached;
+  });
 
   const handleWhatsAppOrder = (event) => {
     event.preventDefault();
@@ -242,7 +368,8 @@ Delivery Address: ${customerAddress.trim()}
 Order Items:
 ${orderItems}
 
-Total Items: ${cartCount}
+Subtotal: LKR ${subtotal.toLocaleString("en-LK")}
+${appliedCoupon ? `Coupon: ${appliedCoupon.code} (${appliedCoupon.label})\nDiscount: LKR ${discountAmount.toLocaleString("en-LK")}\n` : ""}Total Items: ${cartCount}
 Order Total: LKR ${total.toLocaleString("en-LK")}
 
 Thank you.`;
@@ -262,6 +389,9 @@ Thank you.`;
         quantity: item.quantity,
         subtotal: item.subtotal,
       })),
+      subtotal,
+      couponCode: appliedCoupon?.code || "",
+      discount: discountAmount,
       total,
       status: "Pending",
     });
@@ -270,6 +400,8 @@ Thank you.`;
     setCustomerPhone("");
     setCustomerAddress("");
     setCheckoutMessage("");
+    setCouponCode("");
+    setAppliedCoupon(null);
     setIsCheckoutOpen(false);
   };
 
@@ -288,6 +420,248 @@ Thank you.`;
             ×
           </button>
         </div>
+
+        {surpriseCoupon && (
+          <>
+            <style>{`
+              .coupon-surprise-overlay {
+                position: fixed;
+                inset: 0;
+                z-index: 99999;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+                background: rgba(45, 25, 35, 0.48);
+                backdrop-filter: blur(8px);
+                animation: auriaCouponFadeIn .3s ease both;
+              }
+
+              .coupon-surprise-card {
+                position: relative;
+                width: min(420px, 100%);
+                padding: 34px 28px 28px;
+                border: 1px solid #ead3c8;
+                border-radius: 28px;
+                background: #fffaf7;
+                box-shadow: 0 25px 70px rgba(45, 25, 35, .28);
+                text-align: center;
+                animation: auriaCouponPop .65s cubic-bezier(.17,.89,.32,1.35) both;
+              }
+
+              .coupon-surprise-close {
+                position: absolute;
+                top: 12px;
+                right: 12px;
+                width: 34px;
+                height: 34px;
+                border: 1px solid #e2c9bd;
+                border-radius: 50%;
+                background: #fff;
+                color: #79564e;
+                font-size: 20px;
+                cursor: pointer;
+              }
+
+              .coupon-surprise-icon {
+                width: 82px;
+                height: 82px;
+                margin: 0 auto 14px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 50%;
+                background: #f4e2da;
+                font-size: 44px;
+                animation: auriaGiftBounce 1s ease-in-out .1s infinite;
+              }
+
+              .coupon-surprise-eyebrow {
+                margin-bottom: 7px;
+                color: #a56c7c;
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: .18em;
+              }
+
+              .coupon-surprise-card h3 {
+                margin: 0 0 8px;
+                color: #422b34;
+                font-size: 25px;
+              }
+
+              .coupon-surprise-card p {
+                margin: 0 0 20px;
+                color: #96766b;
+                font-size: 14px;
+              }
+
+              .coupon-surprise-code {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                margin: 0 auto 20px;
+                padding: 16px;
+                border: 1px dashed #c99582;
+                border-radius: 16px;
+                background: #fdf1ec;
+                animation: auriaCodeGlow 1.4s ease-in-out .3s infinite alternate;
+              }
+
+              .coupon-surprise-code strong {
+                color: #713f58;
+                font-size: 24px;
+                letter-spacing: .08em;
+              }
+
+              .coupon-surprise-code span {
+                color: #9b6d60;
+                font-size: 13px;
+                font-weight: 600;
+              }
+
+              .coupon-surprise-use {
+                width: 100%;
+                min-height: 52px;
+                border: none;
+                border-radius: 14px;
+                background: #3b1f35;
+                color: #fff;
+                font-family: inherit;
+                font-size: 14px;
+                font-weight: 700;
+                cursor: pointer;
+                box-shadow: 0 10px 25px rgba(59, 31, 53, .2);
+                transition: transform .2s ease, box-shadow .2s ease;
+              }
+
+              .coupon-surprise-use:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 14px 30px rgba(59, 31, 53, .28);
+              }
+
+              .coupon-confetti {
+                position: absolute;
+                inset: 0;
+                overflow: hidden;
+                pointer-events: none;
+              }
+
+              .coupon-confetti span {
+                position: absolute;
+                top: 15%;
+                left: 50%;
+                color: #9b6d60;
+                font-size: 25px;
+                opacity: 0;
+                animation: auriaConfetti 1.7s ease-out infinite;
+              }
+
+              .coupon-confetti span:nth-child(1) { margin-left: -210px; animation-delay: .05s; }
+              .coupon-confetti span:nth-child(2) { margin-left: -125px; animation-delay: .22s; }
+              .coupon-confetti span:nth-child(3) { margin-left: -45px; animation-delay: .38s; }
+              .coupon-confetti span:nth-child(4) { margin-left: 55px; animation-delay: .14s; }
+              .coupon-confetti span:nth-child(5) { margin-left: 135px; animation-delay: .3s; }
+              .coupon-confetti span:nth-child(6) { margin-left: 205px; animation-delay: .5s; }
+
+              @keyframes auriaCouponFadeIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+              }
+
+              @keyframes auriaCouponPop {
+                0% { opacity: 0; transform: scale(.55) translateY(35px) rotate(-2deg); }
+                65% { opacity: 1; transform: scale(1.04) translateY(-5px) rotate(.5deg); }
+                100% { opacity: 1; transform: scale(1) translateY(0) rotate(0); }
+              }
+
+              @keyframes auriaGiftBounce {
+                0%, 100% { transform: translateY(0) rotate(0deg) scale(1); }
+                50% { transform: translateY(-9px) rotate(-5deg) scale(1.05); }
+              }
+
+              @keyframes auriaCodeGlow {
+                from { transform: scale(1); box-shadow: 0 0 0 rgba(165, 108, 124, 0); }
+                to { transform: scale(1.025); box-shadow: 0 8px 28px rgba(165, 108, 124, .18); }
+              }
+
+              @keyframes auriaConfetti {
+                0% { opacity: 0; transform: translateY(-10px) scale(.5) rotate(0deg); }
+                20% { opacity: 1; }
+                100% { opacity: 0; transform: translateY(420px) scale(1.2) rotate(220deg); }
+              }
+
+              @media (prefers-reduced-motion: reduce) {
+                .coupon-surprise-overlay,
+                .coupon-surprise-card,
+                .coupon-surprise-icon,
+                .coupon-surprise-code,
+                .coupon-confetti span {
+                  animation: none !important;
+                }
+              }
+
+              @media (max-width: 480px) {
+                .coupon-surprise-card {
+                  padding: 30px 20px 22px;
+                  border-radius: 24px;
+                }
+
+                .coupon-surprise-card h3 {
+                  font-size: 21px;
+                }
+
+                .coupon-surprise-icon {
+                  width: 70px;
+                  height: 70px;
+                  font-size: 37px;
+                }
+              }
+            `}</style>
+
+            <div className="coupon-surprise-overlay" role="dialog" aria-live="polite">
+            <div className="coupon-confetti" aria-hidden="true">
+              <span>✦</span><span>✧</span><span>•</span><span>✦</span><span>✧</span><span>•</span>
+            </div>
+
+            <div className="coupon-surprise-card">
+              <button
+                type="button"
+                className="coupon-surprise-close"
+                onClick={() => setSurpriseCoupon(null)}
+                aria-label="Close coupon surprise"
+              >
+                ×
+              </button>
+
+              <div className="coupon-surprise-icon">🎁</div>
+              <div className="coupon-surprise-eyebrow">SPECIAL SURPRISE</div>
+              <h3>🎉 You unlocked a coupon!</h3>
+              <p>Your order just reached the minimum spend.</p>
+
+              <div className="coupon-surprise-code">
+                <strong>{surpriseCoupon.code}</strong>
+                <span>{surpriseCoupon.label}</span>
+              </div>
+
+              <button
+                type="button"
+                className="coupon-surprise-use"
+                onClick={() => {
+                  setCouponCode(surpriseCoupon.code);
+                  setAppliedCoupon(surpriseCoupon);
+                  setCheckoutMessage(
+                    `${surpriseCoupon.code} coupon එක apply කළා — ${surpriseCoupon.label}.`
+                  );
+                  setSurpriseCoupon(null);
+                }}
+              >
+                Use My Surprise Coupon ✨
+              </button>
+            </div>
+          </div>
+          </>
+        )}
 
         {cart.length === 0 ? (
           <div className="empty-cart">
@@ -317,6 +691,18 @@ Thank you.`;
                   <strong>LKR {item.subtotal.toLocaleString("en-LK")}</strong>
                 </div>
               ))}
+
+              <div className="checkout-summary-row checkout-subtotal-row">
+                <span>Subtotal</span>
+                <strong>LKR {subtotal.toLocaleString("en-LK")}</strong>
+              </div>
+
+              {discountAmount > 0 && (
+                <div className="checkout-summary-row checkout-discount-row">
+                  <span>Discount {appliedCoupon ? `(${appliedCoupon.code})` : ""}</span>
+                  <strong>- LKR {discountAmount.toLocaleString("en-LK")}</strong>
+                </div>
+              )}
 
               <div className="checkout-total-row">
                 <span>Total</span>
@@ -357,6 +743,74 @@ Thank you.`;
                   required
                 />
               </label>
+
+              {unlockedCoupons.length > 0 && !appliedCoupon && (
+                <div className="coupon-unlocked-box">
+                  <div className="coupon-unlocked-title">
+                    🎉 You unlocked a coupon!
+                  </div>
+                  <div className="coupon-unlocked-subtitle">
+                    Your order is eligible for these discounts.
+                  </div>
+
+                  <div className="coupon-unlocked-list">
+                    {unlockedCoupons.map((coupon) => (
+                      <button
+                        type="button"
+                        className="coupon-unlocked-item"
+                        key={coupon.id}
+                        onClick={() => {
+                          setCouponCode(coupon.code);
+                          setAppliedCoupon(coupon);
+                          setCheckoutMessage(
+                            `${coupon.code} coupon එක apply කළා — ${coupon.label}.`
+                          );
+                        }}
+                      >
+                        <span>
+                          <strong>{coupon.code}</strong>
+                          <small>{coupon.label}</small>
+                        </span>
+                        <span className="coupon-use-now">Use</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="coupon-box">
+                <label>
+                  Discount Coupon
+                  <div className="coupon-input-row">
+                    <input
+                      type="text"
+                      placeholder="Enter coupon code"
+                      value={couponCode}
+                      onChange={(event) => setCouponCode(event.target.value.toUpperCase())}
+                      disabled={Boolean(appliedCoupon)}
+                    />
+                    {appliedCoupon ? (
+                      <button
+                        type="button"
+                        className="coupon-remove-button"
+                        onClick={handleRemoveCoupon}
+                      >
+                        Remove
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="coupon-apply-button"
+                        onClick={handleApplyCoupon}
+                      >
+                        Apply
+                      </button>
+                    )}
+                  </div>
+                </label>
+
+                <small>Try: AURIA10 or GIFT500</small>
+              </div>
 
               {checkoutMessage && (
                 <p className="checkout-message">{checkoutMessage}</p>
@@ -462,6 +916,8 @@ function AdminPanel({
   setOffers,
   orders,
   setOrders,
+  coupons,
+  setCoupons,
   onClose,
 }) {
   const [name, setName] = useState("");
@@ -479,6 +935,13 @@ function AdminPanel({
   const [offerActive, setOfferActive] = useState(true);
 
   const [message, setMessage] = useState("");
+
+  const [couponCode, setCouponCode] = useState("");
+  const [couponType, setCouponType] = useState("percent");
+  const [couponValue, setCouponValue] = useState("");
+  const [couponMinOrder, setCouponMinOrder] = useState("0");
+  const [couponExpiry, setCouponExpiry] = useState("");
+  const [couponActive, setCouponActive] = useState(true);
 
   const handleImageChange = (event) => {
     const file = event.target.files[0];
@@ -679,6 +1142,101 @@ function AdminPanel({
     setMessage("Order එක delete කළා.");
   };
 
+  const handleAddCoupon = (event) => {
+    event.preventDefault();
+
+    const code = couponCode.trim().toUpperCase();
+    const value = Number(couponValue);
+    const minOrder = Number(couponMinOrder || 0);
+
+    if (!code || !couponValue) {
+      setMessage("Coupon code සහ discount value ඇතුළත් කරන්න.");
+      return;
+    }
+
+    if (!/^[A-Z0-9_-]{3,20}$/.test(code)) {
+      setMessage("Coupon code එක 3-20 characters අතර letters/numbers වලින් යොදන්න.");
+      return;
+    }
+
+    if (value <= 0 || Number.isNaN(value)) {
+      setMessage("Discount value එක 0 ට වැඩි අගයක් විය යුතුයි.");
+      return;
+    }
+
+    if (couponType === "percent" && value > 100) {
+      setMessage("Percentage discount එක 100% ට වඩා වැඩි වෙන්න බැහැ.");
+      return;
+    }
+
+    if (minOrder < 0 || Number.isNaN(minOrder)) {
+      setMessage("Minimum order value එක නිවැරදිව ඇතුළත් කරන්න.");
+      return;
+    }
+
+    const alreadyExists = coupons.some(
+      (coupon) => coupon.code.toUpperCase() === code
+    );
+
+    if (alreadyExists) {
+      setMessage("මේ coupon code එක දැනටමත් තියෙනවා.");
+      return;
+    }
+
+    const label =
+      couponType === "percent"
+        ? `${value}% OFF`
+        : `LKR ${value.toLocaleString("en-LK")} OFF`;
+
+    const newCoupon = {
+      id: Date.now(),
+      code,
+      type: couponType,
+      value,
+      minOrder,
+      expiry: couponExpiry,
+      active: couponActive,
+      label,
+    };
+
+    setCoupons((currentCoupons) => [
+      ...currentCoupons,
+      newCoupon,
+    ]);
+
+    setCouponCode("");
+    setCouponValue("");
+    setCouponMinOrder("0");
+    setCouponExpiry("");
+    setCouponType("percent");
+    setCouponActive(true);
+    setMessage(`Coupon ${code} සාර්ථකව add කළා.`);
+  };
+
+  const handleToggleCoupon = (id) => {
+    setCoupons((currentCoupons) =>
+      currentCoupons.map((coupon) =>
+        coupon.id === id
+          ? { ...coupon, active: !coupon.active }
+          : coupon
+      )
+    );
+
+    setMessage("Coupon status එක update කළා.");
+  };
+
+  const handleDeleteCoupon = (id) => {
+    const confirmed = window.confirm("මේ coupon එක delete කරන්නද?");
+
+    if (!confirmed) return;
+
+    setCoupons((currentCoupons) =>
+      currentCoupons.filter((coupon) => coupon.id !== id)
+    );
+
+    setMessage("Coupon එක delete කළා.");
+  };
+
   return (
     <div className="admin-overlay">
       <div className="admin-panel">
@@ -708,6 +1266,7 @@ function AdminPanel({
           <a href="#admin-current-products">Products</a>
           <a href="#admin-add-offer">Add Offer</a>
           <a href="#admin-current-offers">Offers</a>
+          <a href="#admin-coupons">Coupons</a>
           <a href="#admin-customer-orders">Orders</a>
         </div>
 
@@ -1037,6 +1596,130 @@ function AdminPanel({
             </div>
           </div>
 
+          <form
+            id="admin-coupons"
+            className="product-form coupon-admin-form"
+            onSubmit={handleAddCoupon}
+          >
+            <h3>Discount Coupons</h3>
+
+            <label>
+              Coupon code
+              <input
+                type="text"
+                placeholder="Example: AURIA10"
+                value={couponCode}
+                onChange={(event) =>
+                  setCouponCode(event.target.value.toUpperCase())
+                }
+                maxLength="20"
+              />
+            </label>
+
+            <label>
+              Discount type
+              <select
+                value={couponType}
+                onChange={(event) => setCouponType(event.target.value)}
+              >
+                <option value="percent">Percentage (%)</option>
+                <option value="fixed">Fixed Amount (LKR)</option>
+              </select>
+            </label>
+
+            <label>
+              Discount value
+              <input
+                type="number"
+                min="1"
+                max={couponType === "percent" ? "100" : undefined}
+                placeholder={couponType === "percent" ? "Example: 10" : "Example: 500"}
+                value={couponValue}
+                onChange={(event) => setCouponValue(event.target.value)}
+              />
+            </label>
+
+            <label>
+              Minimum order value
+              <input
+                type="number"
+                min="0"
+                placeholder="Example: 3000"
+                value={couponMinOrder}
+                onChange={(event) => setCouponMinOrder(event.target.value)}
+              />
+            </label>
+
+            <label>
+              Expiry date
+              <input
+                type="date"
+                value={couponExpiry}
+                onChange={(event) => setCouponExpiry(event.target.value)}
+              />
+            </label>
+
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={couponActive}
+                onChange={(event) => setCouponActive(event.target.checked)}
+              />
+              Coupon active
+            </label>
+
+            <button
+              type="submit"
+              className="primary-button admin-submit"
+            >
+              Add Coupon <span>+</span>
+            </button>
+
+            <div className="admin-coupon-list">
+              <div className="admin-products-heading">
+                <h3>Current Coupons</h3>
+                <span>{coupons.length} coupons</span>
+              </div>
+
+              {coupons.length === 0 ? (
+                <p className="empty-admin-message">
+                  තවම coupons add කරලා නැහැ.
+                </p>
+              ) : (
+                coupons.map((coupon) => (
+                  <div className="admin-coupon-row" key={coupon.id}>
+                    <div className="admin-coupon-main">
+                      <strong>{coupon.code}</strong>
+                      <span>{coupon.label}</span>
+                      <small>
+                        Min. order: LKR {Number(coupon.minOrder || 0).toLocaleString("en-LK")}
+                        {coupon.expiry ? ` • Expires: ${coupon.expiry}` : " • No expiry"}
+                      </small>
+                    </div>
+
+                    <div className="admin-coupon-actions">
+                      <button
+                        type="button"
+                        className={coupon.active ? "status-button active" : "status-button"}
+                        onClick={() => handleToggleCoupon(coupon.id)}
+                      >
+                        {coupon.active ? "Active" : "Inactive"}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="delete-button"
+                        onClick={() => handleDeleteCoupon(coupon.id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </form>
+
           <div id="admin-customer-orders" className="admin-products admin-orders-section">
             <div className="admin-products-heading">
               <h3>Customer Orders</h3>
@@ -1163,6 +1846,57 @@ function App() {
     }
   });
 
+  const [coupons, setCoupons] = useState(() => {
+    const savedCoupons = localStorage.getItem("auria-coupons");
+
+    if (!savedCoupons) {
+      return [
+        {
+          id: 1,
+          code: "AURIA10",
+          type: "percent",
+          value: 10,
+          minOrder: 3000,
+          expiry: "",
+          active: true,
+          label: "10% OFF",
+        },
+        {
+          id: 2,
+          code: "GIFT500",
+          type: "fixed",
+          value: 500,
+          minOrder: 3000,
+          expiry: "",
+          active: true,
+          label: "LKR 500 OFF",
+        },
+      ];
+    }
+
+    try {
+      const parsedCoupons = JSON.parse(savedCoupons);
+
+      // Migrate the original demo coupons so the requested LKR 3,000
+      // unlock rule works even if the browser already has older localStorage.
+      return parsedCoupons.map((coupon) => {
+        if (
+          (coupon.code === "AURIA10" || coupon.code === "GIFT500") &&
+          Number(coupon.minOrder || 0) === 0
+        ) {
+          return {
+            ...coupon,
+            minOrder: 3000,
+          };
+        }
+
+        return coupon;
+      });
+    } catch {
+      return [];
+    }
+  });
+
   const [orders, setOrders] = useState(() => {
     const savedOrders = localStorage.getItem("auria-orders");
 
@@ -1199,6 +1933,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem("auria-orders", JSON.stringify(orders));
   }, [orders]);
+
+  useEffect(() => {
+    localStorage.setItem("auria-coupons", JSON.stringify(coupons));
+  }, [coupons]);
 
   const activeOffer = offers.find(
     (offer) => offer.active
@@ -1582,6 +2320,7 @@ function App() {
         onIncrease={increaseCartQuantity}
         onDecrease={decreaseCartQuantity}
         onRemove={removeFromCart}
+        coupons={coupons}
         onOrderComplete={(order) => {
           setOrders((currentOrders) => [order, ...currentOrders]);
           setCart([]);
@@ -1598,6 +2337,8 @@ function App() {
           setOffers={setOffers}
           orders={orders}
           setOrders={setOrders}
+          coupons={coupons}
+          setCoupons={setCoupons}
           onClose={() => setIsAdminOpen(false)}
         />
       )}
