@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { supabase } from "./supabaseClient";
 import "./App.css";
 
 const WHATSAPP_NUMBER = "94782676693";
@@ -106,7 +107,7 @@ function ProductMockup({ type }) {
 /* Product Image */
 /* ============================= */
 
-function ProductImage({ product }) {
+function ProductImage({ product, onWishlist }) {
   const isOutOfStock = Number(product.stock || 0) <= 0;
 
   return (
@@ -130,6 +131,7 @@ function ProductImage({ product }) {
       <button
         type="button"
         className="heart-button"
+        onClick={() => onWishlist?.(product)}
         aria-label={`Add ${product.name} to wishlist`}
       >
         ♡
@@ -178,6 +180,205 @@ function OfferBanner({ offer }) {
         )}
       </div>
     </section>
+  );
+}
+
+/* ============================= */
+/* Product Reviews */
+/* ============================= */
+
+function ReviewModal({
+  product,
+  reviews,
+  onClose,
+  onAddReview,
+}) {
+  const [customerName, setCustomerName] = useState("");
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState("");
+  const [reviewMessage, setReviewMessage] = useState("");
+
+  if (!product) return null;
+
+  const productReviews = reviews
+    .filter((review) => review.productId === product.id)
+    .sort((a, b) => b.id - a.id);
+
+  const average =
+    productReviews.length > 0
+      ? productReviews.reduce((sum, review) => sum + review.rating, 0) /
+        productReviews.length
+      : 0;
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+
+    if (!customerName.trim() || !comment.trim()) {
+      setReviewMessage("Name සහ review එක දෙකම ඇතුළත් කරන්න.");
+      return;
+    }
+
+    onAddReview({
+      id: Date.now(),
+      productId: product.id,
+      productName: product.name,
+      customerName: customerName.trim(),
+      rating: Number(rating),
+      comment: comment.trim(),
+      date: new Date().toLocaleDateString("en-LK"),
+    });
+
+    setCustomerName("");
+    setRating(5);
+    setComment("");
+    setReviewMessage("Review එක සාර්ථකව add කළා. ❤️");
+  };
+
+  return (
+    <div className="review-modal-overlay">
+      <div className="review-modal">
+        <button
+          type="button"
+          className="review-modal-close"
+          onClick={onClose}
+          aria-label="Close reviews"
+        >
+          ×
+        </button>
+
+        <p className="eyebrow">Customer Reviews</p>
+        <h2>{product.name}</h2>
+
+        <div className="review-summary">
+          <div className="review-big-rating">
+            <strong>
+              {average > 0 ? average.toFixed(1) : "New"}
+            </strong>
+
+            {average > 0 && (
+              <div className="review-stars" aria-label={`${average.toFixed(1)} out of 5 stars`}>
+                {"★★★★★".split("").map((star, index) => (
+                  <span
+                    key={index}
+                    className={
+                      index < Math.round(average)
+                        ? "star filled"
+                        : "star"
+                    }
+                  >
+                    ★
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <small>
+              {productReviews.length} review
+              {productReviews.length !== 1 ? "s" : ""}
+            </small>
+          </div>
+        </div>
+
+        <div className="review-list">
+          {productReviews.length === 0 ? (
+            <div className="empty-reviews">
+              <span>♡</span>
+              <p>No reviews yet.</p>
+              <small>Be the first customer to share your experience.</small>
+            </div>
+          ) : (
+            productReviews.map((review) => (
+              <article className="review-item" key={review.id}>
+                <div className="review-item-header">
+                  <div>
+                    <strong>{review.customerName}</strong>
+                    <small>{review.date}</small>
+                  </div>
+
+                  <div className="review-stars" aria-label={`${review.rating} out of 5 stars`}>
+                    {"★★★★★".split("").map((star, index) => (
+                      <span
+                        key={index}
+                        className={
+                          index < review.rating
+                            ? "star filled"
+                            : "star"
+                        }
+                      >
+                        ★
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <p>{review.comment}</p>
+              </article>
+            ))
+          )}
+        </div>
+
+        <form className="review-form" onSubmit={handleSubmit}>
+          <h3>Write a Review</h3>
+
+          <label>
+            Your name
+            <input
+              type="text"
+              placeholder="Example: Nadeesha"
+              value={customerName}
+              onChange={(event) =>
+                setCustomerName(event.target.value)
+              }
+            />
+          </label>
+
+          <label>
+            Your rating
+            <div className="rating-picker" role="radiogroup" aria-label="Choose a rating">
+              {[1, 2, 3, 4, 5].map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={
+                    value <= rating
+                      ? "rating-star selected"
+                      : "rating-star"
+                  }
+                  onClick={() => setRating(value)}
+                  aria-label={`${value} star`}
+                  aria-pressed={value === rating}
+                >
+                  ★
+                </button>
+              ))}
+            </div>
+          </label>
+
+          <label>
+            Your review
+            <textarea
+              placeholder="Tell us about your experience..."
+              value={comment}
+              onChange={(event) =>
+                setComment(event.target.value)
+              }
+              rows="4"
+            />
+          </label>
+
+          {reviewMessage && (
+            <p className="review-message">{reviewMessage}</p>
+          )}
+
+          <button
+            type="submit"
+            className="primary-button review-submit"
+          >
+            Submit Review <span>♡</span>
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -342,6 +543,12 @@ function CartDrawer({
     return isActive && notExpired && minimumReached;
   });
 
+  const hasPersonalizedProduct = cartItems.some(
+    (item) =>
+      item.product.category?.toLowerCase() === "personalized" ||
+      item.product.type === "frame"
+  );
+
   const handleWhatsAppOrder = (event) => {
     event.preventDefault();
 
@@ -369,7 +576,19 @@ Order Items:
 ${orderItems}
 
 Subtotal: LKR ${subtotal.toLocaleString("en-LK")}
-${appliedCoupon ? `Coupon: ${appliedCoupon.code} (${appliedCoupon.label})\nDiscount: LKR ${discountAmount.toLocaleString("en-LK")}\n` : ""}Total Items: ${cartCount}
+${appliedCoupon ? `Coupon: ${appliedCoupon.code} (${appliedCoupon.label})\nDiscount: LKR ${discountAmount.toLocaleString("en-LK")}\n` : ""}${hasPersonalizedProduct ? `
+
+📸 PERSONALIZED PHOTO / පුද්ගලීකරණ ඡායාරූපය
+
+සිංහල:
+මෙය Personalized Product එකක් බැවින්, කරුණාකර ඔබට අවශ්‍ය ඡායාරූපය මෙම WhatsApp Chat එකට වෙනම Upload / Attach කරන්න.
+හොඳම Quality එක සඳහා Original / High-Resolution Photo එකක් එවන්න. Original Quality එක ආරක්ෂා කරගැනීමට Photo එක WhatsApp එකේ Document ලෙස Attach කරන්න. Photo එක 10MB ට වඩා වැඩි වුවත් ගැටලුවක් නැහැ.
+
+English:
+Since this is a Personalized Product, please Upload / Attach the required photo directly to this WhatsApp Chat.
+For the best quality, please send the Original / High-Resolution Photo as a Document on WhatsApp. The photo can be larger than 10MB.
+
+` : ""}Total Items: ${cartCount}
 Order Total: LKR ${total.toLocaleString("en-LK")}
 
 Thank you.`;
@@ -906,6 +1125,351 @@ Thank you.`;
 }
 
 /* ============================= */
+/* Admin Login - Supabase Auth */
+/* ============================= */
+
+function AdminLogin({ onLogin, onClose }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanEmail || !password) {
+      setError("Email සහ Password දෙකම ඇතුළත් කරන්න.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError("");
+
+    const { data, error: authError } =
+      await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password,
+      });
+
+    if (authError || !data.user) {
+      setPassword("");
+      setIsSubmitting(false);
+      setError(
+        authError?.message === "Invalid login credentials"
+          ? "Email හෝ Password වැරදියි."
+          : authError?.message || "Login failed. නැවත උත්සාහ කරන්න."
+      );
+      return;
+    }
+
+    // Server-side authorization check.
+    // The RLS policy only allows an authenticated user to read
+    // their own admin_roles row.
+    const { data: adminRole, error: roleError } = await supabase
+      .from("admin_roles")
+      .select("role")
+      .eq("user_id", data.user.id)
+      .maybeSingle();
+
+    if (roleError || adminRole?.role !== "admin") {
+      await supabase.auth.signOut();
+      setPassword("");
+      setIsSubmitting(false);
+      setError("මෙම account එකට Admin access ලබාදී නැහැ.");
+      return;
+    }
+
+    setPassword("");
+    setIsSubmitting(false);
+    setError("");
+    onLogin(data.user);
+  };
+
+  return (
+    <div className="admin-login-overlay">
+      <style>{`
+        .admin-login-overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 99999;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 24px;
+          background: rgba(39, 24, 32, .72);
+          backdrop-filter: blur(12px);
+        }
+
+        .admin-login-card {
+          position: relative;
+          width: min(430px, 100%);
+          padding: 38px;
+          border: 1px solid #ead6cb;
+          border-radius: 26px;
+          background: #fffaf7;
+          box-shadow: 0 30px 80px rgba(25, 14, 21, .3);
+          animation: adminLoginIn .45s ease both;
+        }
+
+        .admin-login-brand {
+          margin-bottom: 26px;
+          text-align: center;
+        }
+
+        .admin-login-brand .eyebrow {
+          margin-bottom: 8px;
+        }
+
+        .admin-login-brand h2 {
+          margin: 0;
+          color: #3b1f35;
+          font-family: Georgia, serif;
+          font-size: 32px;
+          font-weight: 500;
+        }
+
+        .admin-login-subtitle {
+          margin: 8px auto 0;
+          max-width: 300px;
+          color: #90756d;
+          font-size: 12px;
+          line-height: 1.6;
+        }
+
+        .admin-login-form {
+          display: flex;
+          flex-direction: column;
+          gap: 15px;
+        }
+
+        .admin-login-field {
+          display: flex;
+          flex-direction: column;
+          gap: 7px;
+        }
+
+        .admin-login-field label {
+          color: #6d4b53;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: .04em;
+        }
+
+        .admin-login-input-wrap {
+          position: relative;
+        }
+
+        .admin-login-input {
+          width: 100%;
+          box-sizing: border-box;
+          min-height: 50px;
+          padding: 0 14px;
+          border: 1px solid #dfc8bd;
+          border-radius: 12px;
+          outline: none;
+          background: #fff;
+          color: #3b1f35;
+          font-family: inherit;
+          font-size: 13px;
+          transition: border-color .2s, box-shadow .2s;
+        }
+
+        .admin-login-input:focus {
+          border-color: #8c5c6d;
+          box-shadow: 0 0 0 3px rgba(140, 92, 109, .1);
+        }
+
+        .admin-password-input {
+          padding-right: 72px;
+        }
+
+        .admin-show-password {
+          position: absolute;
+          top: 50%;
+          right: 9px;
+          transform: translateY(-50%);
+          padding: 7px 9px;
+          border: 0;
+          border-radius: 8px;
+          background: #f7eee9;
+          color: #795565;
+          font-family: inherit;
+          font-size: 10px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .admin-login-error {
+          margin: 0;
+          padding: 10px 12px;
+          border: 1px solid #edc9c9;
+          border-radius: 10px;
+          background: #fff1f1;
+          color: #a34c4c;
+          font-size: 11px;
+          line-height: 1.5;
+        }
+
+        .admin-login-actions {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 10px;
+          margin-top: 4px;
+        }
+
+        .admin-login-submit,
+        .admin-login-cancel {
+          min-height: 50px;
+          border-radius: 12px;
+          font-family: inherit;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .admin-login-submit {
+          border: 0;
+          background: #3b1f35;
+          color: #fff;
+          box-shadow: 0 10px 25px rgba(59, 31, 53, .18);
+        }
+
+        .admin-login-submit:disabled {
+          cursor: not-allowed;
+          opacity: .6;
+        }
+
+        .admin-login-cancel {
+          padding: 0 17px;
+          border: 1px solid #dfc8bd;
+          background: #fff;
+          color: #795565;
+        }
+
+        .admin-login-security-note {
+          margin: 17px 0 0;
+          text-align: center;
+          color: #a2877e;
+          font-size: 10px;
+          line-height: 1.6;
+        }
+
+        @keyframes adminLoginIn {
+          from {
+            opacity: 0;
+            transform: translateY(18px) scale(.98);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+
+        @media (max-width: 480px) {
+          .admin-login-card {
+            padding: 28px 20px;
+            border-radius: 22px;
+          }
+
+          .admin-login-brand h2 {
+            font-size: 27px;
+          }
+
+          .admin-login-actions {
+            grid-template-columns: 1fr;
+          }
+
+          .admin-login-cancel {
+            min-height: 46px;
+          }
+        }
+      `}</style>
+
+      <div className="admin-login-card">
+        <div className="admin-login-brand">
+          <p className="eyebrow">Secure Administration</p>
+          <h2>Auria Gift</h2>
+          <p className="admin-login-subtitle">
+            Sign in with your authorized Supabase Admin account.
+          </p>
+        </div>
+
+        <form className="admin-login-form" onSubmit={handleSubmit}>
+          <div className="admin-login-field">
+            <label htmlFor="auria-admin-email">Admin Email</label>
+            <input
+              id="auria-admin-email"
+              className="admin-login-input"
+              type="email"
+              autoComplete="username"
+              placeholder="admin@auriagift.com"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              disabled={isSubmitting}
+            />
+          </div>
+
+          <div className="admin-login-field">
+            <label htmlFor="auria-admin-password">Password</label>
+
+            <div className="admin-login-input-wrap">
+              <input
+                id="auria-admin-password"
+                className="admin-login-input admin-password-input"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                placeholder="Enter your password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                disabled={isSubmitting}
+              />
+
+              <button
+                type="button"
+                className="admin-show-password"
+                onClick={() => setShowPassword((current) => !current)}
+                disabled={isSubmitting}
+              >
+                {showPassword ? "HIDE" : "SHOW"}
+              </button>
+            </div>
+          </div>
+
+          {error && <p className="admin-login-error">{error}</p>}
+
+          <div className="admin-login-actions">
+            <button
+              type="submit"
+              className="admin-login-submit"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? "Signing in..." : "Secure Login →"}
+            </button>
+
+            <button
+              type="button"
+              className="admin-login-cancel"
+              onClick={onClose}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+
+        <p className="admin-login-security-note">
+          Authentication is handled by Supabase Auth. Admin authorization is
+          checked against the protected database role.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ============================= */
 /* Admin Panel */
 /* ============================= */
 
@@ -918,6 +1482,10 @@ function AdminPanel({
   setOrders,
   coupons,
   setCoupons,
+  reviews,
+  onDeleteReview,
+  newOrderIds = [],
+  onMarkOrdersSeen,
   onClose,
 }) {
   const [name, setName] = useState("");
@@ -1237,8 +1805,59 @@ function AdminPanel({
     setMessage("Coupon එක delete කළා.");
   };
 
+  const adminNewOrderStyles = `
+    .admin-new-order-alert{display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:13px 15px;border:1px solid #e1b9a8;border-radius:15px;background:linear-gradient(135deg,#fff4ec,#fffaf7);box-shadow:0 8px 24px rgba(91,49,39,.08);animation:newOrderAlertIn .45s ease both}
+    .admin-new-order-alert-icon{display:flex;align-items:center;justify-content:center;width:40px;height:40px;flex:0 0 40px;border-radius:50%;background:#3b1f35;color:#fff;font-size:18px;animation:newOrderBell 1.2s ease-in-out infinite}
+    .admin-new-order-alert-text{display:flex;flex:1;flex-direction:column;gap:3px}
+    .admin-new-order-alert-text strong{color:#4a2832;font-family:Georgia,serif;font-size:15px}
+    .admin-new-order-alert-text span{color:#876b62;font-size:11px;line-height:1.4}
+    .admin-new-order-seen{flex:0 0 auto;padding:8px 12px;border:1px solid #d8b6aa;border-radius:9px;background:#fff;color:#714657;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer}
+    .admin-new-order-seen:hover{background:#3b1f35;border-color:#3b1f35;color:#fff}
+    .admin-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+
+    .admin-logout-button {
+      min-height: 38px;
+      padding: 0 13px;
+      border: 1px solid #dcc2b7;
+      border-radius: 10px;
+      background: #fffaf7;
+      color: #704756;
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: .2s ease;
+    }
+
+    .admin-logout-button:hover {
+      border-color: #3b1f35;
+      background: #3b1f35;
+      color: #fff;
+      transform: translateY(-1px);
+    }
+
+    .admin-order-card.new-order-highlight{position:relative;border:2px solid #b77862!important;box-shadow:0 0 0 4px rgba(183,120,98,.11),0 15px 35px rgba(91,49,39,.12)!important;animation:newOrderHighlight 1.1s ease-in-out 3}
+    .new-order-badge{display:inline-flex;align-items:center;width:fit-content;margin-bottom:5px;padding:4px 8px;border-radius:999px;background:#3b1f35;color:#fff;font-size:9px;font-weight:800;letter-spacing:.08em;animation:newOrderBadgePop .35s ease both}
+    @keyframes newOrderAlertIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes newOrderBell{0%,100%{transform:rotate(0)}15%{transform:rotate(12deg)}30%{transform:rotate(-12deg)}45%{transform:rotate(8deg)}60%{transform:rotate(-5deg)}}
+    @keyframes newOrderHighlight{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+    @keyframes newOrderBadgePop{from{opacity:0;transform:scale(.8)}to{opacity:1;transform:scale(1)}}
+    @media(max-width:600px){
+      .admin-new-order-alert{align-items:flex-start;flex-wrap:wrap}
+      .admin-new-order-alert-text{min-width:0}
+      .admin-new-order-seen{width:100%;margin-left:52px}
+      .admin-header-actions{gap:6px}
+      .admin-logout-button{padding:0 9px;font-size:10px}
+    }
+  `;
+
   return (
     <div className="admin-overlay">
+      <style>{adminNewOrderStyles}</style>
       <div className="admin-panel">
         <div className="admin-header">
           <div>
@@ -1246,14 +1865,25 @@ function AdminPanel({
             <h2>Admin Panel</h2>
           </div>
 
-          <button
-            type="button"
-            className="admin-close"
-            onClick={onClose}
-            aria-label="Close admin panel"
-          >
-            ×
-          </button>
+          <div className="admin-header-actions">
+            <button
+              type="button"
+              className="admin-logout-button"
+              onClick={onClose}
+              aria-label="Logout from admin panel"
+            >
+              🔐 Logout
+            </button>
+
+            <button
+              type="button"
+              className="admin-close"
+              onClick={onClose}
+              aria-label="Close admin panel"
+            >
+              ×
+            </button>
+          </div>
         </div>
 
         <div className="admin-content">
@@ -1267,6 +1897,7 @@ function AdminPanel({
           <a href="#admin-add-offer">Add Offer</a>
           <a href="#admin-current-offers">Offers</a>
           <a href="#admin-coupons">Coupons</a>
+          <a href="#admin-reviews">Reviews</a>
           <a href="#admin-customer-orders">Orders</a>
         </div>
 
@@ -1720,7 +2351,78 @@ function AdminPanel({
             </div>
           </form>
 
+          <div id="admin-reviews" className="admin-products">
+            <div className="admin-products-heading">
+              <h3>Customer Reviews</h3>
+              <span>{reviews.length} reviews</span>
+            </div>
+
+            <div className="admin-review-list">
+              {reviews.length === 0 ? (
+                <p className="empty-admin-message">
+                  තවම customer reviews add කරලා නැහැ.
+                </p>
+              ) : (
+                reviews
+                  .slice()
+                  .sort((a, b) => b.id - a.id)
+                  .map((review) => (
+                    <div className="admin-review-row" key={review.id}>
+                      <div className="admin-review-content">
+                        <strong>{review.productName}</strong>
+                        <span>
+                          {review.customerName} • {review.date}
+                        </span>
+                        <div className="review-stars">
+                          {"★★★★★".split("").map((star, index) => (
+                            <span
+                              key={index}
+                              className={
+                                index < Number(review.rating)
+                                  ? "star filled"
+                                  : "star"
+                              }
+                            >
+                              ★
+                            </span>
+                          ))}
+                        </div>
+                        <p>{review.comment}</p>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="delete-button"
+                        onClick={() => onDeleteReview(review.id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  ))
+              )}
+            </div>
+          </div>
+
           <div id="admin-customer-orders" className="admin-products admin-orders-section">
+            {newOrderIds.length > 0 && (
+              <div className="admin-new-order-alert">
+                <div className="admin-new-order-alert-icon">🔔</div>
+                <div className="admin-new-order-alert-text">
+                  <strong>New Customer Order!</strong>
+                  <span>
+                    අලුත් customer order එකක් ලැබිලා තියෙනවා. පහළින් highlighted order එක බලන්න.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={onMarkOrdersSeen}
+                  className="admin-new-order-seen"
+                >
+                  Mark as Seen
+                </button>
+              </div>
+            )}
+
             <div className="admin-products-heading">
               <h3>Customer Orders</h3>
               <span>{orders.length} orders</span>
@@ -1732,10 +2434,21 @@ function AdminPanel({
                   තවම orders නැහැ.
                 </p>
               ) : (
-                orders.map((order) => (
-                  <div className="admin-order-card" key={order.id}>
+                orders.map((order) => {
+                  const isNewOrder = newOrderIds.includes(order.id);
+
+                  return (
+                    <div
+                      className={`admin-order-card ${
+                        isNewOrder ? "new-order-highlight" : ""
+                      }`}
+                      key={order.id}
+                    >
                     <div className="admin-order-header">
                       <div>
+                        {isNewOrder && (
+                          <span className="new-order-badge">NEW ORDER</span>
+                        )}
                         <strong>Order #{String(order.id).slice(-6)}</strong>
                         <span>{order.date}</span>
                       </div>
@@ -1782,7 +2495,8 @@ function AdminPanel({
                       </select>
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -1909,8 +2623,82 @@ function App() {
     }
   });
 
+  const [reviews, setReviews] = useState(() => {
+    const savedReviews = localStorage.getItem("auria-reviews");
+
+    if (!savedReviews) return [];
+
+    try {
+      return JSON.parse(savedReviews);
+    } catch {
+      return [];
+    }
+  });
+
+  const [reviewProduct, setReviewProduct] = useState(null);
+
+  const [selectedCategory, setSelectedCategory] = useState("All");
+
+  const [newOrderIds, setNewOrderIds] = useState(() => {
+    const saved = localStorage.getItem("auria-new-order-ids");
+    if (!saved) return [];
+    try {
+      return JSON.parse(saved);
+    } catch {
+      return [];
+    }
+  });
+
   const [isAdminOpen, setIsAdminOpen] = useState(false);
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
+  const [isAdminAuthLoading, setIsAdminAuthLoading] = useState(true);
   const [isCartOpen, setIsCartOpen] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const verifyAdminSession = async (session) => {
+      if (!session?.user) {
+        if (mounted) {
+          setIsAdminAuthenticated(false);
+          setIsAdminAuthLoading(false);
+        }
+        return;
+      }
+
+      const { data: adminRole, error: roleError } = await supabase
+        .from("admin_roles")
+        .select("role")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+
+      if (!mounted) return;
+
+      if (roleError || adminRole?.role !== "admin") {
+        await supabase.auth.signOut();
+        setIsAdminAuthenticated(false);
+      } else {
+        setIsAdminAuthenticated(true);
+      }
+
+      setIsAdminAuthLoading(false);
+    };
+
+    supabase.auth.getSession().then(({ data }) => {
+      verifyAdminSession(data.session);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      verifyAdminSession(session);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem(
@@ -1938,6 +2726,17 @@ function App() {
     localStorage.setItem("auria-coupons", JSON.stringify(coupons));
   }, [coupons]);
 
+  useEffect(() => {
+    localStorage.setItem("auria-reviews", JSON.stringify(reviews));
+  }, [reviews]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      "auria-new-order-ids",
+      JSON.stringify(newOrderIds)
+    );
+  }, [newOrderIds]);
+
   const activeOffer = offers.find(
     (offer) => offer.active
   );
@@ -1946,6 +2745,47 @@ function App() {
     (sum, item) => sum + item.quantity,
     0
   );
+
+  const handleAddReview = (review) => {
+    setReviews((currentReviews) => [
+      ...currentReviews,
+      review,
+    ]);
+  };
+
+  const handleDeleteReview = (id) => {
+    const confirmed = window.confirm("මේ review එක delete කරන්නද?");
+
+    if (!confirmed) return;
+
+    setReviews((currentReviews) =>
+      currentReviews.filter((review) => review.id !== id)
+    );
+  };
+
+  const getProductRating = (productId) => {
+    const productReviews = reviews.filter(
+      (review) => review.productId === productId
+    );
+
+    if (!productReviews.length) {
+      return {
+        average: 0,
+        count: 0,
+      };
+    }
+
+    const average =
+      productReviews.reduce(
+        (sum, review) => sum + Number(review.rating || 0),
+        0
+      ) / productReviews.length;
+
+    return {
+      average,
+      count: productReviews.length,
+    };
+  };
 
   const addToCart = (product) => {
     const productStock = Number(product.stock || 0);
@@ -2029,8 +2869,157 @@ function App() {
     );
   };
 
+  const productCategories = [
+    "All",
+    ...Array.from(
+      new Set(
+        products
+          .map((product) => product.category)
+          .filter(Boolean)
+      )
+    ),
+  ];
+
+  const visibleProducts =
+    selectedCategory === "All"
+      ? products
+      : products.filter(
+          (product) => product.category === selectedCategory
+        );
+
+  const getCategoryCount = (category) =>
+    category === "All"
+      ? products.length
+      : products.filter(
+          (product) => product.category === category
+        ).length;
+  const categoryBarStyles = `
+    .product-category-bar {
+      margin: 24px 0 10px;
+      padding: 8px;
+      border: 1px solid #eadbd2;
+      border-radius: 18px;
+      background: rgba(255, 250, 247, .92);
+      box-shadow: 0 8px 24px rgba(64, 42, 45, .05);
+    }
+
+    .product-category-scroll {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 2px;
+      scrollbar-width: thin;
+    }
+
+    .product-category-scroll::-webkit-scrollbar {
+      height: 5px;
+    }
+
+    .product-category-tab {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 42px;
+      padding: 0 15px;
+      border: 1px solid #e3cfc4;
+      border-radius: 999px;
+      background: #fffdfb;
+      color: #76564d;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .22s ease;
+    }
+
+    .product-category-tab small {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 21px;
+      height: 21px;
+      padding: 0 5px;
+      border-radius: 999px;
+      background: #f4e7e1;
+      color: #9b7167;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .product-category-tab:hover {
+      transform: translateY(-1px);
+      border-color: #b98292;
+      color: #713f58;
+    }
+
+    .product-category-tab.active {
+      border-color: #3b1f35;
+      background: #3b1f35;
+      color: #fff;
+      box-shadow: 0 7px 18px rgba(59, 31, 53, .16);
+    }
+
+    .product-category-tab.active small {
+      background: rgba(255,255,255,.16);
+      color: #fff;
+    }
+
+    .product-filter-result {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 8px 2px 16px;
+      color: #795d56;
+      font-size: 12px;
+    }
+
+    .product-filter-result span {
+      font-weight: 700;
+      color: #53343c;
+    }
+
+    .product-filter-result small {
+      color: #a28277;
+    }
+
+    @media (max-width: 600px) {
+      .product-category-bar {
+        position: sticky;
+        top: 8px;
+        z-index: 20;
+        margin-top: 18px;
+        border-radius: 15px;
+        padding: 6px;
+      }
+
+      .product-category-scroll {
+        gap: 6px;
+        scrollbar-width: none;
+      }
+
+      .product-category-scroll::-webkit-scrollbar {
+        display: none;
+      }
+
+      .product-category-tab {
+        min-height: 39px;
+        padding: 0 12px;
+        font-size: 11px;
+      }
+
+      .product-filter-result {
+        margin-bottom: 13px;
+      }
+    }
+  `;
+
   return (
     <div className="app">
+      <style>{categoryBarStyles}</style>
       <div className="announcement">
         Complimentary gift wrapping on orders over LKR 5,000
       </div>
@@ -2214,8 +3203,46 @@ function App() {
             </a>
           </div>
 
+          {/* Product Category Status Bar */}
+          <div className="product-category-bar" role="tablist" aria-label="Product categories">
+            <div className="product-category-scroll">
+              {productCategories.map((category) => {
+                const count = getCategoryCount(category);
+                const isActive = selectedCategory === category;
+
+                return (
+                  <button
+                    key={category}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    className={`product-category-tab ${
+                      isActive ? "active" : ""
+                    }`}
+                    onClick={() => setSelectedCategory(category)}
+                  >
+                    <span>{category}</span>
+                    <small>{count}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="product-filter-result">
+            <span>
+              {selectedCategory === "All"
+                ? "All gifts"
+                : selectedCategory}
+            </span>
+            <small>
+              {visibleProducts.length} product
+              {visibleProducts.length !== 1 ? "s" : ""}
+            </small>
+          </div>
+
           <div className="product-grid">
-            {products.map((product) => {
+            {visibleProducts.map((product) => {
               const productStock = Number(
                 product.stock || 0
               );
@@ -2231,12 +3258,51 @@ function App() {
                   }`}
                   key={product.id}
                 >
-                  <ProductImage product={product} />
+                  <ProductImage
+                    product={product}
+                    onWishlist={(selectedProduct) => {
+                      // Keep the existing wishlist button safe while reviews are enabled.
+                      // If a wishlist handler exists in a future version, it can be passed here.
+                    }}
+                  />
 
                   <div className="product-info">
                     <p>{product.category}</p>
 
                     <h3>{product.name}</h3>
+
+                    {(() => {
+                      const rating = getProductRating(product.id);
+
+                      return (
+                        <button
+                          type="button"
+                          className="product-rating-button"
+                          onClick={() => setReviewProduct(product)}
+                        >
+                          <span className="product-stars">
+                            {"★★★★★".split("").map((star, index) => (
+                              <span
+                                key={index}
+                                className={
+                                  index < Math.round(rating.average)
+                                    ? "star filled"
+                                    : "star"
+                                }
+                              >
+                                ★
+                              </span>
+                            ))}
+                          </span>
+
+                          <span>
+                            {rating.count > 0
+                              ? `${rating.average.toFixed(1)} (${rating.count})`
+                              : "Write a review"}
+                          </span>
+                        </button>
+                      );
+                    })()}
 
                     <strong>{product.price}</strong>
 
@@ -2323,24 +3389,70 @@ function App() {
         coupons={coupons}
         onOrderComplete={(order) => {
           setOrders((currentOrders) => [order, ...currentOrders]);
+          setNewOrderIds((currentIds) => [
+            order.id,
+            ...currentIds.filter((id) => id !== order.id),
+          ]);
           setCart([]);
         }}
       />
 
+      {/* Product Reviews */}
+
+      {reviewProduct && (
+        <ReviewModal
+          product={reviewProduct}
+          reviews={reviews}
+          onClose={() => setReviewProduct(null)}
+          onAddReview={handleAddReview}
+        />
+      )}
+
       {/* Admin Panel */}
 
       {isAdminOpen && (
-        <AdminPanel
-          products={products}
-          setProducts={setProducts}
-          offers={offers}
-          setOffers={setOffers}
-          orders={orders}
-          setOrders={setOrders}
-          coupons={coupons}
-          setCoupons={setCoupons}
-          onClose={() => setIsAdminOpen(false)}
-        />
+        isAdminAuthLoading ? (
+          <div
+            className="admin-login-overlay"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="admin-login-card" style={{ textAlign: "center" }}>
+              <p className="eyebrow">Secure Administration</p>
+              <h2 style={{ margin: 0, color: "#3b1f35", fontFamily: "Georgia, serif" }}>
+                Checking secure session...
+              </h2>
+              <p className="admin-login-subtitle">
+                Supabase authentication and admin authorization are being checked.
+              </p>
+            </div>
+          </div>
+        ) : isAdminAuthenticated ? (
+          <AdminPanel
+            products={products}
+            setProducts={setProducts}
+            offers={offers}
+            setOffers={setOffers}
+            orders={orders}
+            setOrders={setOrders}
+            coupons={coupons}
+            setCoupons={setCoupons}
+            reviews={reviews}
+            onDeleteReview={handleDeleteReview}
+            newOrderIds={newOrderIds}
+            onMarkOrdersSeen={() => setNewOrderIds([])}
+            onClose={async () => {
+              await supabase.auth.signOut();
+              setIsAdminAuthenticated(false);
+              setIsAdminOpen(false);
+            }}
+          />
+        ) : (
+          <AdminLogin
+            onLogin={() => setIsAdminAuthenticated(true)}
+            onClose={() => setIsAdminOpen(false)}
+          />
+        )
       )}
     </div>
   );
