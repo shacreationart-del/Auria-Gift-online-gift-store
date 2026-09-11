@@ -549,7 +549,7 @@ function CartDrawer({
       item.product.type === "frame"
   );
 
-  const handleWhatsAppOrder = (event) => {
+  const handleWhatsAppOrder = async (event) => {
     event.preventDefault();
 
     if (!customerName.trim() || !customerPhone.trim() || !customerAddress.trim()) {
@@ -596,7 +596,7 @@ Thank you.`;
     const whatsappUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, "_blank");
 
-    onOrderComplete({
+    const orderSaved = await onOrderComplete({
       id: Date.now(),
       date: new Date().toLocaleString("en-LK"),
       customerName: customerName.trim(),
@@ -614,6 +614,11 @@ Thank you.`;
       total,
       status: "Pending",
     });
+
+    if (orderSaved === false) {
+      setCheckoutMessage("Order save failed. Please try again.");
+      return;
+    }
 
     setCustomerName("");
     setCustomerPhone("");
@@ -1475,11 +1480,15 @@ function AdminLogin({ onLogin, onClose }) {
 
 function AdminPanel({
   products,
-  setProducts,
+  onAddProduct,
+  onDeleteProduct,
+  onUpdateStock,
   offers,
   setOffers,
   orders,
   setOrders,
+  onUpdateOrderStatus,
+  onDeleteOrder,
   coupons,
   setCoupons,
   reviews,
@@ -1551,7 +1560,7 @@ function AdminPanel({
     reader.readAsDataURL(file);
   };
 
-  const handleAddProduct = (event) => {
+  const handleAddProduct = async (event) => {
     event.preventDefault();
 
     if (!name.trim() || !price.trim()) {
@@ -1580,10 +1589,8 @@ function AdminPanel({
       stock: enteredStock,
     };
 
-    setProducts((currentProducts) => [
-      ...currentProducts,
-      newProduct,
-    ]);
+    const saved = await onAddProduct(newProduct);
+    if (!saved) return;
 
     setName("");
     setPrice("");
@@ -1593,30 +1600,24 @@ function AdminPanel({
     setMessage("Product එක සාර්ථකව add කළා.");
   };
 
-  const handleDeleteProduct = (id) => {
+  const handleDeleteProduct = async (id) => {
     const confirmed = window.confirm(
       "මේ product එක delete කරන්නද?"
     );
 
     if (!confirmed) return;
 
-    setProducts((currentProducts) =>
-      currentProducts.filter((product) => product.id !== id)
-    );
+    const deleted = await onDeleteProduct(id);
+    if (!deleted) return;
 
     setMessage("Product එක delete කළා.");
   };
 
-  const handleUpdateStock = (id, value) => {
+  const handleUpdateStock = async (id, value) => {
     const newStock = Math.max(0, Number(value) || 0);
 
-    setProducts((currentProducts) =>
-      currentProducts.map((product) =>
-        product.id === id
-          ? { ...product, stock: newStock }
-          : product
-      )
-    );
+    const updated = await onUpdateStock(id, newStock);
+    if (!updated) return;
 
     setMessage("Stock quantity එක update කළා.");
   };
@@ -1688,26 +1689,16 @@ function AdminPanel({
     setMessage("Offer status එක update කළා.");
   };
 
-  const handleUpdateOrderStatus = (id, status) => {
-    setOrders((currentOrders) =>
-      currentOrders.map((order) =>
-        order.id === id ? { ...order, status } : order
-      )
-    );
-
-    setMessage("Order status එක update කළා.");
+  const handleUpdateOrderStatus = async (id, status) => {
+    await onUpdateOrderStatus(id, status);
   };
 
-  const handleDeleteOrder = (id) => {
+  const handleDeleteOrder = async (id) => {
     const confirmed = window.confirm("මේ order එක delete කරන්නද?");
 
     if (!confirmed) return;
 
-    setOrders((currentOrders) =>
-      currentOrders.filter((order) => order.id !== id)
-    );
-
-    setMessage("Order එක delete කළා.");
+    await onDeleteOrder(id);
   };
 
   const handleAddCoupon = (event) => {
@@ -2515,26 +2506,7 @@ function AdminPanel({
 /* ============================= */
 
 function App() {
-  const [products, setProducts] = useState(() => {
-    const savedProducts = localStorage.getItem(
-      "auria-products"
-    );
-
-    if (!savedProducts) {
-      return defaultProducts;
-    }
-
-    try {
-      const parsedProducts = JSON.parse(savedProducts);
-
-      return parsedProducts.map((product) => ({
-        ...product,
-        stock: Number(product.stock || 0),
-      }));
-    } catch {
-      return defaultProducts;
-    }
-  });
+  const [products, setProducts] = useState(defaultProducts);
 
   const [offers, setOffers] = useState(() => {
     const savedOffers = localStorage.getItem("auria-offers");
@@ -2611,17 +2583,7 @@ function App() {
     }
   });
 
-  const [orders, setOrders] = useState(() => {
-    const savedOrders = localStorage.getItem("auria-orders");
-
-    if (!savedOrders) return [];
-
-    try {
-      return JSON.parse(savedOrders);
-    } catch {
-      return [];
-    }
-  });
+  const [orders, setOrders] = useState([]);
 
   const [reviews, setReviews] = useState(() => {
     const savedReviews = localStorage.getItem("auria-reviews");
@@ -2701,11 +2663,138 @@ function App() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(
-      "auria-products",
-      JSON.stringify(products)
-    );
-  }, [products]);
+    let cancelled = false;
+
+    const normalizeProducts = (rows) =>
+      (rows || []).map((product) => ({
+        ...product,
+        stock: Number(product.stock || 0),
+      }));
+
+    const loadProducts = async () => {
+      const { data, error } = await supabase
+        .from("products")
+        .select("id,name,category,price,type,image,stock,created_at")
+        .order("id", { ascending: true });
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error("Supabase products load error:", error);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        setProducts(normalizeProducts(data));
+        return;
+      }
+
+      // First-time migration: use existing browser products when the
+      // Supabase table is empty. Only an authenticated admin can write them.
+      if (isAdminAuthenticated) {
+        let seedProducts = defaultProducts;
+        const savedProducts = localStorage.getItem("auria-products");
+
+        if (savedProducts) {
+          try {
+            const parsed = JSON.parse(savedProducts);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              seedProducts = parsed;
+            }
+          } catch {
+            // Keep defaultProducts when old localStorage is invalid.
+          }
+        }
+
+        const normalizedSeed = normalizeProducts(seedProducts).map(
+          ({ created_at, ...product }) => product
+        );
+
+        const { data: inserted, error: insertError } = await supabase
+          .from("products")
+          .upsert(normalizedSeed, { onConflict: "id" })
+          .select("id,name,category,price,type,image,stock,created_at")
+          .order("id", { ascending: true });
+
+        if (cancelled) return;
+
+        if (insertError) {
+          console.error("Supabase products seed error:", insertError);
+          return;
+        }
+
+        setProducts(normalizeProducts(inserted));
+        return;
+      }
+
+      // Before the admin has logged in, keep the existing local catalogue
+      // visible while the empty database waits for the first admin session.
+      const savedProducts = localStorage.getItem("auria-products");
+      if (savedProducts) {
+        try {
+          const parsed = JSON.parse(savedProducts);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setProducts(normalizeProducts(parsed));
+          }
+        } catch {
+          // Keep defaultProducts.
+        }
+      }
+    };
+
+    loadProducts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdminAuthenticated]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const normalizeOrders = (rows) =>
+      (rows || []).map((row) => ({
+        id: Number(row.id),
+        date: row.order_date,
+        customerName: row.customer_name,
+        customerPhone: row.customer_phone,
+        customerAddress: row.customer_address,
+        items: Array.isArray(row.items) ? row.items : [],
+        subtotal: Number(row.subtotal || 0),
+        couponCode: row.coupon_code || "",
+        discount: Number(row.discount || 0),
+        total: Number(row.total || 0),
+        status: row.status,
+        createdAt: row.created_at,
+      }));
+
+    const loadOrders = async () => {
+      if (!isAdminAuthenticated) {
+        setOrders([]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("orders")
+        .select("id,order_date,customer_name,customer_phone,customer_address,items,subtotal,coupon_code,discount,total,status,created_at")
+        .order("id", { ascending: false });
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error("Supabase orders load error:", error);
+        return;
+      }
+
+      setOrders(normalizeOrders(data));
+    };
+
+    loadOrders();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdminAuthenticated]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -2717,10 +2806,6 @@ function App() {
   useEffect(() => {
     localStorage.setItem("auria-cart", JSON.stringify(cart));
   }, [cart]);
-
-  useEffect(() => {
-    localStorage.setItem("auria-orders", JSON.stringify(orders));
-  }, [orders]);
 
   useEffect(() => {
     localStorage.setItem("auria-coupons", JSON.stringify(coupons));
@@ -2745,6 +2830,76 @@ function App() {
     (sum, item) => sum + item.quantity,
     0
   );
+
+  const handleAddProductToSupabase = async (product) => {
+    const { data, error } = await supabase
+      .from("products")
+      .insert({
+        id: product.id,
+        name: product.name,
+        category: product.category,
+        price: product.price,
+        type: product.type,
+        image: product.image,
+        stock: Number(product.stock || 0),
+      })
+      .select("id,name,category,price,type,image,stock,created_at")
+      .single();
+
+    if (error) {
+      console.error("Supabase product insert error:", error);
+      alert(`Product save failed: ${error.message}`);
+      return false;
+    }
+
+    setProducts((currentProducts) => [
+      ...currentProducts,
+      { ...data, stock: Number(data.stock || 0) },
+    ]);
+    return true;
+  };
+
+  const handleDeleteProductFromSupabase = async (id) => {
+    const { error } = await supabase
+      .from("products")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error("Supabase product delete error:", error);
+      alert(`Product delete failed: ${error.message}`);
+      return false;
+    }
+
+    setProducts((currentProducts) =>
+      currentProducts.filter((product) => product.id !== id)
+    );
+    return true;
+  };
+
+  const handleUpdateProductStockInSupabase = async (id, newStock) => {
+    const { data, error } = await supabase
+      .from("products")
+      .update({ stock: newStock })
+      .eq("id", id)
+      .select("id,stock")
+      .single();
+
+    if (error) {
+      console.error("Supabase product stock update error:", error);
+      alert(`Stock update failed: ${error.message}`);
+      return false;
+    }
+
+    setProducts((currentProducts) =>
+      currentProducts.map((product) =>
+        product.id === id
+          ? { ...product, stock: Number(data.stock || 0) }
+          : product
+      )
+    );
+    return true;
+  };
 
   const handleAddReview = (review) => {
     setReviews((currentReviews) => [
@@ -3016,6 +3171,89 @@ function App() {
       }
     }
   `;
+
+  const handleCreateOrderInSupabase = async (order) => {
+    const orderId = Number(order.id || Date.now());
+
+    const { error } = await supabase
+      .from("orders")
+      .insert({
+        id: orderId,
+        order_date: order.date,
+        customer_name: order.customerName,
+        customer_phone: order.customerPhone,
+        customer_address: order.customerAddress,
+        items: order.items,
+        subtotal: Number(order.subtotal || 0),
+        coupon_code: order.couponCode || "",
+        discount: Number(order.discount || 0),
+        total: Number(order.total || 0),
+        status: order.status || "Pending",
+      });
+
+    if (error) {
+      console.error("Supabase order insert error:", error);
+      alert(`Order save failed: ${error.message}`);
+      return false;
+    }
+
+    const savedOrder = {
+      ...order,
+      id: orderId,
+    };
+
+    setOrders((currentOrders) => [savedOrder, ...currentOrders]);
+    setNewOrderIds((currentIds) => [
+      savedOrder.id,
+      ...currentIds.filter((id) => id !== savedOrder.id),
+    ]);
+
+    return true;
+  };
+
+  const handleUpdateOrderStatus = async (id, status) => {
+    const { error } = await supabase
+      .from("orders")
+      .update({ status })
+      .eq("id", id);
+
+    if (error) {
+      console.error("Supabase order status update error:", error);
+      alert(`Order status update failed: ${error.message}`);
+      return false;
+    }
+
+    setOrders((currentOrders) =>
+      currentOrders.map((order) =>
+        order.id === id ? { ...order, status } : order
+      )
+    );
+
+    return true;
+  };
+
+  const handleDeleteOrder = async (id) => {
+    const { error } = await supabase
+      .from("orders")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error("Supabase order delete error:", error);
+      alert(`Order delete failed: ${error.message}`);
+      return false;
+    }
+
+    setOrders((currentOrders) =>
+      currentOrders.filter((order) => order.id !== id)
+    );
+
+    setNewOrderIds((currentIds) =>
+      currentIds.filter((orderId) => orderId !== id)
+    );
+
+    return true;
+  };
 
   return (
     <div className="app">
@@ -3387,13 +3625,10 @@ function App() {
         onDecrease={decreaseCartQuantity}
         onRemove={removeFromCart}
         coupons={coupons}
-        onOrderComplete={(order) => {
-          setOrders((currentOrders) => [order, ...currentOrders]);
-          setNewOrderIds((currentIds) => [
-            order.id,
-            ...currentIds.filter((id) => id !== order.id),
-          ]);
-          setCart([]);
+        onOrderComplete={async (order) => {
+          const saved = await handleCreateOrderInSupabase(order);
+          if (saved) setCart([]);
+          return saved;
         }}
       />
 
@@ -3430,11 +3665,15 @@ function App() {
         ) : isAdminAuthenticated ? (
           <AdminPanel
             products={products}
-            setProducts={setProducts}
+            onAddProduct={handleAddProductToSupabase}
+            onDeleteProduct={handleDeleteProductFromSupabase}
+            onUpdateStock={handleUpdateProductStockInSupabase}
             offers={offers}
             setOffers={setOffers}
             orders={orders}
             setOrders={setOrders}
+            onUpdateOrderStatus={handleUpdateOrderStatus}
+            onDeleteOrder={handleDeleteOrder}
             coupons={coupons}
             setCoupons={setCoupons}
             reviews={reviews}
